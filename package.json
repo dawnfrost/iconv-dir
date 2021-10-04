@@ -1,0 +1,24 @@
+{
+  "name": "iconv-dir",
+  "version": "0.1.0",
+  "description": "A library to convert gbk file names under some directory to utf8 file names or invert",
+  "private": false,
+  "gypfile": true,
+  "author": "dawnfrost",
+  "license": "ISC",
+  "scripts": {
+    "install": "node-gyp rebuild && node post-build.js",
+    "clean": "rm -rf node_modules/ build/"
+  },
+  "main": "./index.js",
+  "files": [
+    "binding.gyp",
+	"index.js",
+	"index.d.ts",
+	"post-build.js",
+    "src/**"
+  ],
+  "dependencies": {
+    "node-addon-api": "^4.2.0"
+  }
+}
