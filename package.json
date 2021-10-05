@@ -11,6 +11,9 @@
     "clean": "rm -rf node_modules/ build/"
   },
   "main": "./index.js",
+  "config": {
+    "unsafe-perm": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dawnfrost/iconv-dir.git"
