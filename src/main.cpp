@@ -5,12 +5,14 @@
 #include <locale.h>
 #include <string>
 #include <vector>
+#include <list>
+#include <errno.h>
 
 char defaultCodePage[128] = { 0 };
 
 
-std::vector<std::string>  split(const std::string& str, const std::string& delim) {
-	std::vector<std::string> res;
+std::list<std::string>  split(const std::string& str, const std::string& delim) {
+	std::list<std::string> res;
 	if (str.empty()) {
 		return  res;
 	}
@@ -370,7 +372,17 @@ bool endsWith(std::string const& str, std::string const& end) {
 	return (i != std::string::npos) && (i == (str.length() - end.length()));
 }
 
-int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, char const* dir, char const* ext = NULL) {
+std::string ConvertErrorCodeToString(DWORD ErrorCode)
+{
+	HLOCAL LocalAddress = NULL;
+	FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_FROM_SYSTEM,
+		NULL, ErrorCode, 0, (PTSTR)&LocalAddress, 0, NULL);
+	std::string ret = (LPSTR)LocalAddress;
+	LocalFree(LocalAddress);
+	return ret;
+}
+
+std::list<std::string> convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, char const* dir, char const* ext = NULL) {
 	WIN32_FIND_DATAA findData;
 	HANDLE handle;
 	char fullName[2048] = { 0 };
@@ -392,7 +404,8 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 		extName = ext;
 	}
 
-	std::vector<std::string> exts = split(extName, "|");
+	std::list<std::string> ret;
+	std::list<std::string> exts = split(extName, "|");
 
 	char tempFilename[MAX_PATH * 4] = { 0 };
 	char destFilename[MAX_PATH * 8] = { 0 };
@@ -401,9 +414,8 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 	bool toGBK = isGBKCodePage(toCodePage);
 	bool toUTF8 = isUTF8CodePage(toCodePage);
 	handle = FindFirstFileA(filePathName, &findData);
-	int ret = -1;
+
 	if (handle != INVALID_HANDLE_VALUE) {
-		ret = 0;
 		while (FindNextFileA(handle, &findData)) {
 			if (_strcmpi(findData.cFileName, ".") == 0 || _strcmpi(findData.cFileName, "..") == 0)
 			{
@@ -413,7 +425,7 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 			std::string strName = findData.cFileName;
 			if (!exts.empty()) {
 				bool matched = false;
-				for (std::vector<std::string>::const_iterator i = exts.begin(); i != exts.end(); ++i) {
+				for (std::list<std::string>::const_iterator i = exts.begin(); i != exts.end(); ++i) {
 					if (endsWith(strName, *i)) {
 						matched = true;
 						break;
@@ -424,6 +436,8 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 				}
 			}
 
+			printf("filename [%s] matched\n", findData.cFileName);
+			std::string filename = strName;
 			bool isAllAscii = false;
 			if ((fromGBK && toUTF8 && isGBKString(isAllAscii, strName.c_str())) || (fromUTF8 && toGBK && isUTF8String(isAllAscii, strName.c_str()))) {
 				if (!isAllAscii) {
@@ -436,11 +450,29 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 						sprintf_s(fullName, sizeof(fullName), "%s\\%s", dir, strName.c_str());
 						sprintf_s(destFilename, sizeof(destFilename), "%s\\%s", dir, tempFilename);
 					}
-					if (rename(fullName, destFilename) == 0) {
-						ret++;
+
+					if (fromGBK) {
+						printf("need convert GBK filename [%s] to UTF8 filename [%s]\n", fullName, destFilename);
+					}
+					else if (fromUTF8) {
+						printf("need convert UTF8 filename [%s] to GBK filename [%s]\n", fullName, destFilename);
+					}
+
+					int renameResult = rename(fullName, destFilename);
+					printf("rename result is [%d]\n", renameResult);
+					if (renameResult == 0) {
+						filename = tempFilename;
+					}
+					else {
+						printf("C error message is [%d - %s]\n", errno, strerror(errno));
+						DWORD lastError = GetLastError();
+						std::string message = ConvertErrorCodeToString(lastError);
+						printf("windows last error is [%d - %s]\n", lastError, message.c_str());
 					}
 				}
 			}
+
+			ret.push_back(filename);
 		}
 	}
 
@@ -488,7 +520,7 @@ bool endsWith(std::string const& str, std::string const& end) {
 	return (i != std::string::npos) && (i == (str.length() - end.length()));
 }
 
-int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, char const* dir, char const* ext = NULL) {
+std::list<std::string> convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, char const* dir, char const* ext = NULL) {
 	DIR* pDir;
 	struct dirent* d;
 	pDir = opendir(dir);
@@ -515,8 +547,9 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 		extName = ext;
 	}
 
-	std::vector<std::string> exts = split(extName, "|");
-	int ret = 0;
+	std::list<std::string> ret;
+	std::list<std::string> exts = split(extName, "|");
+
 	while ((d = readdir(pDir)))
 	{
 		if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0) {
@@ -526,7 +559,7 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 		std::string strName = d->d_name;
 		if (!exts.empty()) {
 			bool matched = false;
-			for (std::vector<std::string>::const_iterator i = exts.begin(); i != exts.end(); ++i) {
+			for (std::list<std::string>::const_iterator i = exts.begin(); i != exts.end(); ++i) {
 				if (endsWith(strName, *i)) {
 					matched = true;
 					break;
@@ -537,6 +570,8 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 			}
 		}
 
+		printf("filename [%s] matched\n", d->d_name);
+		std::string filename = strName;
 		bool isAllAscii = false;
 		if ((fromGBK && toUTF8 && isGBKString(isAllAscii, strName.c_str())) || (fromUTF8 && toGBK && isUTF8String(isAllAscii, strName.c_str()))) {
 			if (!isAllAscii) {
@@ -549,11 +584,25 @@ int convertDirectoryFilenames(char const* fromCodePage, char const* toCodePage, 
 					sprintf(filePathName, "%s/%s", dir, strName.c_str());
 					sprintf(destPathName, "%s/%s", dir, tempFilename);
 				}
-				if (rename(filePathName, destPathName) == 0) {
-					ret++;
+
+				if (fromGBK) {
+					printf("need convert GBK filename [%s] to UTF8 filename [%s]\n", filePathName, destPathName);
+				}
+				else if (fromUTF8) {
+					printf("need convert UTF8 filename [%s] to GBK filename [%s]\n", filePathName, destPathName);
+				}
+
+				int renameResult = rename(filePathName, destPathName);
+				printf("rename result is [%d]\n", renameResult);
+				if (renameResult == 0) {
+					filename = tempFilename;
+				}
+				else {
+					printf("rename failed, C error message is [%d - %s]\n", errno, strerror(errno));
 				}
 			}
 		}
+		ret.push_back(filename);
 	}
 
 	closedir(pDir);
@@ -570,9 +619,23 @@ Napi::Value ConvertDirectory(const Napi::CallbackInfo& info) {
 	std::string dir = info[2].As<Napi::String>().Utf8Value();
 	std::string ext = info[3].As<Napi::String>().Utf8Value();
 
-	int ret = convertDirectoryFilenames(fromCodePage.c_str(), toCodePage.c_str(), dir.c_str(), ext.c_str());
-	Napi::Number num = Napi::Number::New(env, ret);
-	return num;
+	std::list<std::string> ret = convertDirectoryFilenames(fromCodePage.c_str(), toCodePage.c_str(), dir.c_str(), ext.c_str());
+
+	char temp[1024] = { 0 };
+	Napi::Array result = Napi::Array::New(env);
+	int index = 0;
+	for (std::list<std::string>::const_iterator i = ret.begin(); i != ret.end(); ++i) {
+		bool isAllAscii = false;
+		if (isGBKString(isAllAscii, i->c_str()) && !isAllAscii) {
+			convertCodePage("gbk", "utf8", i->c_str(), i->length(), temp, sizeof(temp) - 1);
+			result.Set(index++, Napi::String::New(env, temp));
+		}
+		else {
+			result.Set(index++, Napi::String::New(env, i->c_str()));
+		}
+	}
+
+	return result;
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -580,6 +643,5 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	return exports;
 }
 
-// 固定的宏使用
 NODE_API_MODULE(addon, Init)
 
